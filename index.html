@@ -163,7 +163,7 @@ function onMsg(topic, payload){
       const vEl = document.getElementById('v-'+name);
       const tEl = document.getElementById('t-'+name);
       if (vEl) vEl.textContent = (v==null || Number.isNaN(v)) ? '—' : `${Number(v).toFixed(2)} °C`;
-      if (tEl) tEl.textContent = iso;
+      if (tEl) tEl.textContent = d.datetime;
     });
 
     // CSV ред
@@ -189,5 +189,6 @@ window.addEventListener('load', connect);
 </script>
 </body>
 </html>
+
 
 
