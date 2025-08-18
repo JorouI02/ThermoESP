@@ -152,7 +152,7 @@ el.btnDisconnect.onclick = disconnect;
 function onMsg(topic, payload){
   try{
     const d = JSON.parse(new TextDecoder().decode(payload));
-    console.log('payload', payload);
+    console.log('payload', d);
     // очакваме { ts:number|string, T1..T6 }
     const iso = typeof d.ts === 'string' ? new Date(d.ts).toISOString() :
                 typeof d.ts === 'number' ? new Date(d.ts < 1e12? d.ts*1000:d.ts).toISOString() : new Date().toISOString();
@@ -189,4 +189,5 @@ window.addEventListener('load', connect);
 </script>
 </body>
 </html>
+
 
