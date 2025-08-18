@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Thermo Live (MQTT)</title>
+  <style>
+    body{margin:0;background:#0f172a;color:#e5e7eb;font:16px system-ui}
+    header{padding:12px 16px;position:sticky;top:0;background:#111827}
+    .wrap{max-width:900px;margin:auto}
+    .grid{display:grid;gap:12px;grid-template-columns:repeat(2,1fr)}
+    @media (max-width:640px){.grid{grid-template-columns:1fr}}
+    .card{background:#1f2937;padding:12px;border-radius:14px;border:1px solid #ffffff12}
+    .val{font-size:28px;font-weight:700}
+    .muted{opacity:.7;font-size:13px}
+    button{background:#0b1222;color:#e5e7eb;border:1px solid #ffffff22;padding:10px 12px;border-radius:10px;cursor:pointer}
+  </style>
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+</head>
+<body>
+  <header><div class="wrap" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <strong>Thermo Live (HiveMQ Cloud)</strong>
+    <span id="status" class="muted">Изчакване…</span>
+    <button id="dl" disabled>Свали CSV</button>
+  </div></header>
+
+  <main class="wrap" style="padding:14px 16px">
+    <div class="grid" id="cards"></div>
+    <h3>Лог</h3><pre id="log" style="background:#0b1222;border:1px solid #ffffff12;border-radius:10px;padding:10px;max-height:180px;overflow:auto"></pre>
+  </main>
+
+<script>
+const HOST = "8dfb5d8ea05e42479e6203aca4957355.s1.eu.hivemq.cloud";
+const PORT = 8884;                 // WSS порт за браузър
+const USER = "ThermoESP";
+const PASS = "Thermo123";
+const TOPIC = "esp32/thermo/values";
+
+// CSV буфер
+const csv = [["iso_ts","T1"]];
+
+const logEl = document.getElementById('log');
+const cardsEl = document.getElementById('cards');
+const statusEl = document.getElementById('status');
+const btnDl = document.getElementById('dl');
+
+function log(t){ logEl.textContent = `[${new Date().toLocaleTimeString()}] ${t}\n` + logEl.textContent; }
+function setStatus(s){ statusEl.textContent = s; }
+
+// картите се правят динамично според T-полетата
+let fields = [];
+
+function ensureCards(flds){
+  cardsEl.innerHTML = "";
+  flds.forEach(name=>{
+    const div = document.createElement('div');
+    div.className = "card";
+    div.innerHTML = `<div style="display:flex;justify-content:space-between">
+        <h3>${name}</h3><span class="muted" id="mm-${name}"></span></div>
+        <div class="val" id="v-${name}">—</div>
+        <div class="muted" id="age-${name}">—</div>`;
+    cardsEl.appendChild(div);
+  });
+}
+
+function downloadCSV(){
+  const blob = new Blob(csv.map(r=>r.join(',')+"\n"), {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `thermo_${new Date().toISOString().replaceAll(':','-')}.csv`;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+}
+btnDl.onclick = downloadCSV;
+
+const url = `wss://${HOST}:${PORT}/mqtt`; // WSS към HiveMQ Cloud
+// Някои упътвания препоръчват именно 8884 + /mqtt за WSS. :contentReference[oaicite:2]{index=2}
+
+const options = {
+  username: USER,
+  password: PASS,
+  reconnectPeriod: 2000,
+  clean: true,
+  connectTimeout: 10_000,
+  // rejectUnauthorized: true // по желание, ако имаш проблем с сертификата, можеш временно да махнеш проверката (не е препоръчително)
+};
+
+setStatus("Свързване…");
+const client = mqtt.connect(url, options);
+client.on('connect', () => {
+  setStatus("Свързан");
+  client.subscribe(TOPIC);
+  log("Subscribed: " + TOPIC);
+  btnDl.disabled = false;
+});
+client.on('reconnect', ()=> setStatus("Повторен опит…"));
+client.on('error', (e)=> { setStatus("Грешка"); log("ERR " + e.message); });
+client.on('message', (topic, payload) => {
+  try{
+    const d = JSON.parse(new TextDecoder().decode(payload));
+    if (fields.length===0){
+      fields = Object.keys(d).filter(k=>/^T\\d+$/i.test(k)).sort((a,b)=>parseInt(a.slice(1))-parseInt(b.slice(1)));
+      if (fields.length===0) fields = ["T1"];
+      ensureCards(fields);
+      // пренапиши header за всички T*
+      csv.length = 0;
+      csv.push(["iso_ts", ...fields]);
+    }
+    const iso = typeof d.ts === "string" ? new Date(d.ts).toISOString()
+             : typeof d.ts === "number" ? new Date(d.ts < 1e12? d.ts*1000:d.ts).toISOString()
+             : new Date().toISOString();
+    // обнови UI
+    fields.forEach(name=>{
+      const val = d[name];
+      const el = document.getElementById('v-'+name);
+      if (el) el.textContent = Number.isFinite(val) ? val.toFixed(2)+" °C" : "—";
+      const ag = document.getElementById('age-'+name);
+      if (ag) ag.textContent = iso;
+    });
+    // CSV ред
+    csv.push([iso, ...fields.map(n=>d[n] ?? "")]);
+  }catch(e){ log("Parse error"); }
+});
+</script>
+</body>
+</html>
